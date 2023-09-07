@@ -23,7 +23,7 @@ Parameters:
     ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
   DBUser:
     NoEcho: 'true'
-    Default: 'adia-dev'
+    Default: 'adiadev'
     Description: Username for MySQL database access
     Type: String
     MinLength: '1'
