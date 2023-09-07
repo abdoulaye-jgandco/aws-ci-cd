@@ -14,7 +14,7 @@ Parameters:
     ConstraintDescription: must be the name of an existing EC2 KeyPair.
     Default: ssh
   DBName:
-    Default: MyDatabase
+    Default: EhehDatabase
     Description: MySQL database name
     Type: String
     MinLength: '1'
