@@ -1,0 +1,591 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  CloudFormation Template to deploy a casampro LAMP stack.
+    - PHP 8.2, Symfony 6
+    - MySQL (RDS)
+    - (optional) White labeling
+Metadata:
+  LICENSE: "Apache License, Version 2.0"
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: Application
+        Parameters:
+          - AMI
+          - ServerName
+      - Label:
+          default: Github
+        Parameters:
+          - GithubUsername
+          - GithubToken
+          - GithubRepository
+          - Branch
+      - Label:
+          default: Database (MySQL)
+        Parameters:
+          - CreateMySQLDatabase
+          - DBName
+          - DBUser
+          - DBPassword
+          - DBAllocatedStorage
+          - DBInstanceClass
+          - MultiAZDatabase
+      - Label:
+          default: Environment Variables
+        Parameters:
+          - AppEnv
+          - AppSecret
+          - AppDebug
+          - DomainName
+          - DatabaseName
+          - DatabasePassword
+          - DatabasePort
+          - DatabaseUsername
+          - MailFromAddress
+          - MailFromName
+          - MailerDSN
+          - SendinblueApiKey
+      - label:
+          default: SSH
+        Parameters:
+          - KeyName
+    ParameterLabels:
+      AMI:
+        default: AMI ID, e.g., ami-0123456789abcdef0
+      ServerName:
+        default: PHP/Nginx conf server_name
+      CreateMySQLDatabase:
+        default: Create MySQL database (true/false)
+      GithubUsername:
+        default: Your GitHub username (the one that is providing the Token)
+      GithubToken:
+        default: "Your GitHub Token (e.g: ghp_...)"
+      GithubRepository:
+        default: The Repository of the Github project, (RepositoryOwner/RepositoryName)
+      Branch:
+        default: The Branch to checkout to once the instance initiated
+      DBName:
+        default: The name of the Database (e.g., casampro)
+      DBUser:
+        default: Database username
+      DBPassword:
+        default: Database password
+      DBAllocatedStorage:
+        default: Allocated storage for the database
+      DBInstanceClass:
+        default: Instance class for the database
+      MultiAZDatabase:
+        default: Enable Multi-AZ database deployment (true/false)
+      KeyName:
+        default: Enable SSH connections (select a KeyPair)
+      AppEnv:
+        default: Application Environment (e.g., development, production)
+      AppSecret:
+        default: Application Secret (used for secure configurations)
+      AppDebug:
+        default: Application Debug Mode (true/false)
+      DomainName:
+        default: Domain of the application (example.casam-pro.com)
+      DatabaseName:
+        default: Database Name (e.g., casampro, users)
+      DatabasePassword:
+        default: Database Password (used for database authentication)
+      DatabasePort:
+        default: Database Port (e.g., 3306 for MySQL, 5432 for PostgreSQL)
+      DatabaseUsername:
+        default: Database Username (used for database authentication)
+      MailFromAddress:
+        default: Mail From Address (e.g., noreply@example.com)
+      MailFromName:
+        default: Mail From Name (e.g., My App)
+      MailerDSN:
+        default: Mailer DSN (e.g., smtp://username:password@example.com:587)
+      SendinblueApiKey:
+        default: Brevo(Sendinblue) API KEY (e.g., smtp://username:password@example.com:587)
+
+Parameters:
+  AMI:
+    Default: "ami-0a14f8ea43bf6ad0d"
+    Description: AMI ID of the Amazon Linux 2 image (HVM) for the selected region
+    Type: AWS::EC2::Image::Id
+    ConstraintDescription: must be a valid AMI ID of an Amazon Linux 2 image (HVM) for the selected region.
+  ServerName:
+    Description: PHP/Nginx conf server_name
+    Type: String
+  GithubUsername:
+    Description: Your Github Username
+    Type: String
+  GithubToken:
+    Description: A Github token personal access token
+    Type: String
+    NoEcho: true
+  GithubRepository:
+    Description: The repository where the projects sits
+    Type: String
+    Default: JGConsulting/casampro-symfony
+  Branch:
+    Description: The Branch to checkout to once the instance initiated
+    Type: String
+    Default: develop
+  VpcId:
+    Type: "AWS::EC2::VPC::Id"
+    Description: VpcId of your existing Virtual Private Cloud (VPC)
+    ConstraintDescription: must be the VPC Id of an existing Virtual Private Cloud.
+  Subnets:
+    Type: "List<AWS::EC2::Subnet::Id>"
+    Description: The list of SubnetIds in your Virtual Private Cloud (VPC)
+    ConstraintDescription: >-
+      must be a list of at least two existing subnets associated with at least
+      two different availability zones. They should be residing in the selected
+      Virtual Private Cloud.
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Type: "AWS::EC2::KeyPair::KeyName"
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  CreateMySQLDatabase:
+    Default: "true"
+    Description: Create a MySQL database instance
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    ConstraintDescription: must be either true or false.
+  DBName:
+    Default: casampro
+    Description: MySQL database name
+    Type: String
+    MinLength: "1"
+    MaxLength: "64"
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBUser:
+    NoEcho: "true"
+    Description: Username for MySQL database access
+    Type: String
+    MinLength: "1"
+    MaxLength: "16"
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBPassword:
+    NoEcho: "true"
+    Description: Password for MySQL database access
+    Type: String
+    MinLength: "8"
+    MaxLength: "41"
+    AllowedPattern: "[a-zA-Z0-9]*"
+    ConstraintDescription: must contain only alphanumeric characters.
+  DBAllocatedStorage:
+    Default: "5"
+    Description: The size of the database (Gb)
+    Type: Number
+    MinValue: "5"
+    MaxValue: "1024"
+    ConstraintDescription: must be between 5 and 1024Gb.
+  DBInstanceClass:
+    Description: The database instance type
+    Type: String
+    Default: db.t2.small
+    AllowedValues:
+      - db.t1.micro
+      - db.t2.micro
+      - db.t2.small
+      - db.t2.medium
+      - db.t2.large
+    ConstraintDescription: must select a valid database instance type.
+  MultiAZDatabase:
+    Default: "true"
+    Description: Create a Multi-AZ MySQL Amazon RDS database instance
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    ConstraintDescription: must be either true or false.
+  WebServerCapacity:
+    Default: "2"
+    Description: The initial number of WebServer instances
+    Type: Number
+    MinValue: "1"
+    MaxValue: "5"
+    ConstraintDescription: must be between 1 and 5 EC2 instances.
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t2.small
+    AllowedValues:
+      - t1.micro
+      - t2.nano
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+    ConstraintDescription: must be a valid EC2 instance type.
+  SSHLocation:
+    Description: " The IP address range that can be used to SSH to the EC2 instances"
+    Type: String
+    MinLength: "9"
+    MaxLength: "18"
+    Default: 0.0.0.0/0
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  AppEnv:
+    Type: String
+    Description: Application Environment (e.g., development, production)
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+      - test
+      - demo
+  AppSecret:
+    Type: String
+    Description: Application Secret (used for secure configurations)
+    NoEcho: true
+  AppDebug:
+    Type: String
+    Description: Application Debug Mode (true/false)
+    Default: true
+    AllowedValues:
+      - true
+      - false
+  DomainName:
+    Type: String
+    Description: Domain of the application (example.casam-pro.com)
+    Default: ""
+  DatabaseName:
+    Type: String
+    Description: Database Name (e.g., casampro, users)
+    Default: casampro
+  DatabasePassword:
+    Type: String
+    Description: Database Password (used for database authentication)
+    NoEcho: true
+  DatabasePort:
+    Type: Number
+    Description: Database Port (e.g., 3306 for MySQL, 5432 for PostgreSQL)
+    Default: 3306
+  DatabaseUsername:
+    Type: String
+    Description: Database Username (used for database authentication)
+  MailFromAddress:
+    Type: String
+    Description: Mail From Address (e.g., noreply@example.com)
+  MailFromName:
+    Type: String
+    Description: Mail From Name (e.g., My App)
+  MailerDSN:
+    Type: String
+    NoEcho: true
+    Description: Mailer DSN (e.g., smtp://username:password@example.com:587)
+  SendinblueApiKey:
+    Type: String
+    NoEcho: true
+    Description: Brevo(Sendinblue) API KEY (e.g., smtp://username:password@example.com:587)
+Conditions:
+  CreateDatabase: !Equals
+    - Ref: CreateMySQLDatabase
+    - true
+  DomainNameIsEmpty:
+    !Not [ !Equals [ !Ref DomainName, "" ] ]
+Resources:
+  ApplicationLoadBalancer:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      Subnets: !Ref Subnets
+  ALBListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: "80"
+      Protocol: HTTP
+  ALBTargetGroup:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 5
+      VpcId: !Ref VpcId
+      TargetGroupAttributes:
+        - Key: stickiness.enabled
+          Value: "true"
+        - Key: stickiness.type
+          Value: lb_cookie
+        - Key: stickiness.lb_cookie.duration_seconds
+          Value: "30"
+  WebServerGroup:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    Properties:
+      VPCZoneIdentifier: !Ref Subnets
+      LaunchConfigurationName: !Ref LaunchConfig
+      MinSize: "1"
+      MaxSize: "5"
+      DesiredCapacity: !Ref WebServerCapacity
+      TargetGroupARNs:
+        - !Ref ALBTargetGroup
+  LaunchConfig:
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Metadata:
+      Comment1: Configure the bootstrap helpers to install the Apache Web Server and PHP
+      Comment2: >-
+        The website content is downloaded from the CloudFormationPHPSample.zip
+        file
+      "AWS::CloudFormation::Init":
+        config:
+          packages:
+            yum:
+              httpd: []
+              php: []
+              php-mysql: []
+          files:
+            /etc/cfn/cfn-hup.conf:
+              content: !Join
+                - ""
+                - - |
+                    [main]
+                  - stack=
+                  - !Ref "AWS::StackId"
+                  - |+
+
+                  - region=
+                  - !Ref "AWS::Region"
+                  - |+
+
+              mode: "000400"
+              owner: root
+              group: root
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Join
+                - ""
+                - - |
+                    [cfn-auto-reloader-hook]
+                  - |
+                    triggers=post.update
+                  - >
+                    path=Resources.LaunchConfig.Metadata.AWS::CloudFormation::Init
+                  - "action=/opt/aws/bin/cfn-init -v "
+                  - "         --stack "
+                  - !Ref "AWS::StackName"
+                  - "         --resource LaunchConfig "
+                  - "         --region "
+                  - !Ref "AWS::Region"
+                  - |+
+
+                  - |
+                    runas=root
+              mode: "000400"
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              httpd:
+                enabled: "true"
+                ensureRunning: "true"
+              cfn-hup:
+                enabled: "true"
+                ensureRunning: "true"
+                files:
+                  - /etc/cfn/cfn-hup.conf
+                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
+    Properties:
+      ImageId: !Ref AMI
+      InstanceType: !Ref InstanceType
+      SecurityGroups:
+        - !Ref WebServerSecurityGroup
+      KeyName: !Ref KeyName
+      # Install the files and packages from the metadata
+      UserData: !Base64
+        "Fn::Sub":
+          - |
+            #!/bin/bash -xe
+
+            # Configure the nginx server
+            echo "Start configure server for: ${ServerName}"
+            sudo bash -c "cat << 'EOF' > /etc/nginx/conf.d/01-casampro.conf
+            server {
+            server_name ${ServerName};
+            root /var/www/html/public;
+
+            location / {
+            # try to serve file directly, fallback to index.php
+            try_files \$uri /index.php\$is_args\$args;
+            }
+
+            # optionally disable falling back to PHP script for the asset directories;
+            # nginx will return a 404 error when files are not found instead of passing the
+            # request to Symfony (improves performance but Symfony's 404 page is not displayed)
+            # location /bundles {
+            #     try_files \$uri =404;
+            # }
+
+            location ~ ^/index\.php(/|\$) {
+            fastcgi_pass unix:/run/php-fpm/www.sock;
+            fastcgi_split_path_info ^(.+\.php)(/.*)$;
+            include fastcgi_params;
+
+            # optionally set the value of the environment variables used in the application
+            # fastcgi_param APP_ENV prod;
+            # fastcgi_param APP_SECRET <app-secret-id>;
+            # fastcgi_param DATABASE_URL "mysql://db_user:db_pass@host:3306/db_name";
+
+            # When you are using symlinks to link the document root to the
+            # current version of your application, you should pass the real
+            # application path instead of the path to the symlink to PHP
+            # FPM.
+            # Otherwise, PHP's OPcache may not properly detect changes to
+            # your PHP files (see https://github.com/zendtech/ZendOptimizerPlus/issues/126
+            # for more information).
+            # Caveat: When PHP-FPM is hosted on a different machine from nginx
+            #         \$realpath_root may not resolve as you expect! In this case try using
+            #         \$document_root instead.
+            fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
+            fastcgi_param DOCUMENT_ROOT \$realpath_root;
+            # Prevents URIs that include the front controller. This will 404:
+            # http://domain.tld/index.php/some-path
+            # Remove the internal directive to allow URIs like this
+            internal;
+            }
+
+            # return 404 for all other php files not matching the front controller
+            # this prevents access to other php files you don't want to be accessible.
+            location ~ \.php$ {
+            return 404;
+            }
+
+            error_log /var/log/nginx/project_error.log;
+            access_log /var/log/nginx/project_access.log;
+            }
+            EOF
+            "
+            sudo systemctl restart nginx
+            echo "Done configuring the server for: ${ServerName}"
+
+            # Configure the nginx server
+            echo "Creating .env file"
+            sudo bash -c "cat << 'EOF' > /var/www/html/.env
+            APP_SECRET=\"${AppSecret}\"
+            CORS_ALLOW_ORIGIN=\"^https?://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$\"
+            DATABASE_HOST=\"${MySQLDatabase.Endpoint.Address}\"
+            DATABASE_NAME=\"${DatabaseName}\"
+            DATABASE_PASSWORD=\"${DatabasePassword}\"
+            DATABASE_PORT=\"${DatabasePort}\"
+            DATABASE_URL=\"mysql://${DatabaseUsername}:${DatabasePassword}@${MySQLDatabase.Endpoint.Address}:${DatabasePort}/${DatabaseName}\"
+            DATABASE_USERNAME=\"${DatabaseUsername}\"
+            GOOGLE_API_KEY=\"\"
+            GOOGLE_CLIENT_ID=\"\"
+            GOOGLE_CLIENT_SECRET=\"\"
+            MAIL_FROM_ADDRESS=\"${MailFromAddress}\"
+            MAIL_FROM_NAME=\"${MailFromName}\"
+            MAILER_DSN=\"${MailerDSN}\"
+            SENDINBLUE_API_KEY=\"${SendinblueApiKey}\"
+            MANGO_PAY_ID=\"\"
+            MANGO_PAY_PASSWORD=\"\"
+            MANGO_PAY_URL=\"\"
+            S3_ACCESS_KEY=\"\"
+            S3_BUCKET_NAME=\"\"
+            S3_REGION=\"\"
+            S3_SECRET_KEY=\"\"
+            TRUSTED_PROXIES=\"127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,REMOTE_ADDR\"
+            UPLOAD_DIR=uploads/
+            VAR_DUMPER_SERVER=\"\"
+            WKHTMLTOPDF_PATH=/usr/local/bin/wkhtmltopdf
+            WKHTMLTOIMAGE_PATH=/usr/local/bin/wkhtmltoimage
+            APP_ENV=\"${AppEnv}\"
+            APP_DEBUG=\"${AppDebug}\"
+            TRUSTED_HOSTS=\"^(localhost|example\\.com)$\"
+            EOF
+            "
+            echo "Done creating .env file"
+
+            echo "Pulling the current branch"
+            cd /var/www/html
+            sudo git config --global --add safe.directory '*'
+            sudo git reset --hard
+            sudo git remote set-url origin https://${GithubUsername}:${GithubToken}@github.com/${GithubRepository}
+            sudo git fetch --all
+            sudo git checkout ${Branch}
+            sudo git pull
+            echo "Done pulling the current branch"
+
+            sudo npm install
+            sudo npm run build
+            sudo chown -R ec2-user .
+            composer update
+            
+            # echo "Loading the database dump"
+            # sudo mysql --user="${DatabaseUsername}" --password="${DatabasePassword}" --host="${MySQLDatabase.Endpoint.Address}" --execute="use ${DatabaseName}; SOURCE /var/www/html/casampro_staging-and-dev.sql;"
+            # echo "Done loading the database dump"
+
+
+            echo "Execute the Doctrine Migration"
+            php bin/console doctrine:migrations:migrate
+            echo "Done migrating the doctrine schemas"
+
+            yum update -y aws-cfn-bootstrap
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchConfig --region ${AWS::Region}
+
+            # Signal the status from cfn-init
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource WebServerGroup --region ${AWS::Region}
+
+          # For the nginx conf file.
+          - ServerName: !If [ "DomainNameIsEmpty", !Ref ServerName, !Ref DomainName ]
+  WebServerSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: Enable HTTP access via port 80 locked down to the ELB and SSH access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: "80"
+          ToPort: "80"
+          SourceSecurityGroupId: !Select
+            - 0
+            - !GetAtt
+              - ApplicationLoadBalancer
+              - SecurityGroups
+        - IpProtocol: tcp
+          FromPort: "22"
+          ToPort: "22"
+          CidrIp: !Ref SSHLocation
+      VpcId: !Ref VpcId
+  DBEC2SecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: Open database for access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: "3306"
+          ToPort: "3306"
+          SourceSecurityGroupId: !Ref WebServerSecurityGroup
+      VpcId: !Ref VpcId
+  MySQLDatabase:
+    Condition: CreateDatabase
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      Engine: MySQL
+      DBName: !Ref DBName
+      MultiAZ: !Ref MultiAZDatabase
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      VPCSecurityGroups:
+        - !GetAtt
+          - DBEC2SecurityGroup
+          - GroupId
+Outputs:
+  WebsiteURL:
+    Description: URL for newly created LAMP stack
+    Value: !Join
+      - ""
+      - - "http://"
+        - !GetAtt
+          - ApplicationLoadBalancer
+          - DNSName
+  DBAddress:
+    Description: Newly created MySQL DB endpoint
+    Value: !GetAtt MySQLDatabase.Endpoint.Address
+
